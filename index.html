@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Managed Web Map</title>
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css"/>
+    
+    <style>
+        body { margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, sans-serif; overflow: hidden; }
+        #map { height: 100vh; width: 100%; background: #f0f0f0; }
+        
+        /* 1. Position Search Box to avoid overlap with Draw Tools */
+        .map-overlay {
+            position: absolute; 
+            top: 10px; 
+            left: 10px; 
+            width: 240px; 
+            z-index: 1000;
+            background: rgba(255, 255, 255, 0.95); 
+            padding: 12px; 
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+
+        /* 2. Push Draw Toolbar down so it sits below the Search Overlay */
+        .leaflet-draw {
+            margin-top: 160px !important;
+        }
+
+        /* 3. Label Styling */
+        .qgis-label {
+            background: white; 
+            border: 1px solid #777; 
+            padding: 2px 5px;
+            font-size: 10px; 
+            font-weight: bold; 
+            white-space: nowrap;
+            pointer-events: none;
+        }
+
+        .search-box { display: flex; gap: 4px; margin-top: 8px; }
+        input { flex: 1; padding: 6px; border: 1px solid #ccc; border-radius: 4px; }
+        button { cursor: pointer; padding: 6px 10px; background: #eee; border: 1px solid #bbb; border-radius: 4px; }
+        #status-text { font-size: 11px; margin-top: 8px; color: #444; font-weight: bold; }
+        #search-nav { display: flex; justify-content: space-between; margin-top: 5px; }
+        .nav-btn { font-size: 10px; padding: 4px 8px; }
+    </style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div class="map-overlay">
+    <b>Web Map by Dayamoy Ghosh, EE</b>
+    <div class="search-box">
+        <input type="text" id="search-input" placeholder="Search Mouza, Block...">
+        <button onclick="performSearch()">Find</button>
+    </div>
+    <div id="status-text">Layers ready</div>
+    <div id="search-nav" style="display:none;">
+        <button class="nav-btn" onclick="cycleResults(-1)">← Prev</button>
+        <button class="nav-btn" onclick="cycleResults(1)">Next →</button>
+    </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+
+<script>
+    // --- FUTURE PROOFING: Add new files here ---
+    const geojsonConfig = [
+        { url: 'dg3.geojson', name: 'Mouza Boundary', color: '#3388ff' },
+        { url: 'WBADMIP.geojson', name: 'WBADMIP Scheme', color: '#33b8ff' },
+        { url: 'STATEOWNED.geojson', name: 'WRDD ownn Scheme', color: '#33c8ff' },
+        { url: 'WRDDHO.geojson', name: 'WRDD HO Scheme', color: '#33r8ff' },
+        { url: 'WBADMIPII.geojson', name: 'WBADMIP PH-II Scheme', color: '#33m8ff' },
+        { url: 'dg4.geojson', name: 'WBADMIP Proposed Scheme', color: '#22ad5c' } 
+        // { url: 'dg7.geojson', name: 'WRIDD Proposed Scheme', color: '#22kd5c' }
+
+        // To add a new file: { url: 'yourfile.geojson', name: 'New Layer', color: '#ff0000' }
+    ];
+
+    // 1. Initialize Map
+    const map = L.map('map', { preferCanvas: true }).setView([23.0, 87.0], 8);
+    let allLayers = [];
+    let searchResults = [];
+    let currentIndex = -1;
+    let lastHighlighted = null;
+
+    // 2. Basemaps
+    const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OSM' }).addTo(map);
+    const satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Esri' });
+
+    const baseMaps = { "Street View": osm, "Satellite View": satellite };
+    const overlayMaps = {}; // Will be filled automatically
+
+    // 3. Measurement & Delete Tools
+    const drawnItems = new L.FeatureGroup().addTo(map);
+    const drawControl = new L.Control.Draw({
+        edit: { featureGroup: drawnItems },
+        draw: { circle: false, rectangle: false, marker: false, circlemarker: false }
+    }).addTo(map);
+
+    map.on(L.Draw.Event.CREATED, (e) => {
+        const layer = e.layer;
+        const type = e.layerType;
+        let content = "";
+
+        if (type === 'polyline') {
+            const latlngs = layer.getLatLngs();
+            let dist = 0;
+            for(let i=0; i < latlngs.length-1; i++) dist += latlngs[i].distanceTo(latlngs[i+1]);
+            content = `<b>Distance:</b> ${(dist/1000).toFixed(3)} km`;
+        } else if (type === 'polygon') {
+            const areaHa = L.GeometryUtil.geodesicArea(layer.getLatLngs()[0]) / 10000;
+            content = `<b>Area:</b> ${areaHa.toFixed(3)} Ha`;
+        }
+        layer.bindPopup(content).openPopup();
+        drawnItems.addLayer(layer);
+    });
+
+    // 4. Loader Function
+    async function loadGeoJSON(config, group) {
+        try {
+            const response = await fetch(config.url);
+            if (!response.ok) throw new Error("File not found");
+            const data = await response.json();
+            
+            const gLayer = L.geoJSON(data, {
+                pointToLayer: (f, ll) => L.circleMarker(ll, { radius: 4, fillColor: config.color, color: "#fff", weight: 1, fillOpacity: 0.8 }),
+                style: { color: config.color, weight: 1.5, fillOpacity: 0.2 },
+                onEachFeature: (feature, layer) => {
+                    allLayers.push({layer: layer, group: group});
+                    
+                    const p = feature.properties;
+                    // Multi-line labels including MOUZA
+                    const labelText = `<b>Dist:</b> ${p.district || ''}<br><b>Block:</b> ${p.BLOCK || ''}<br><b>Mouza:</b> ${p.MOUZA || p.mouza || ''}`;
+                    
+                    layer.bindTooltip(labelText, { sticky: true, className: 'qgis-label' });
+                    
+                    let popupHtml = `<div style="max-height:150px; overflow-y:auto"><b>Data Properties:</b><table style="font-size:11px">`;
+                    for (let k in p) popupHtml += `<tr><td><b>${k}:</b></td><td>${p[k]}</td></tr>`;
+                    layer.bindPopup(popupHtml + "</table></div>");
+                }
+            }).addTo(group);
+            
+            map.fitBounds(gLayer.getBounds());
+        } catch (err) { 
+            console.error("Load error:", config.url, err); 
+            document.getElementById('status-text').innerText = "Error loading " + config.name;
+        }
+    }
+
+    // 5. Build Layer Control Dynamically
+    geojsonConfig.forEach(config => {
+        const group = L.layerGroup().addTo(map);
+        overlayMaps[config.name] = group;
+        loadGeoJSON(config, group);
+    });
+
+    L.control.layers(baseMaps, overlayMaps, { collapsed: false }).addTo(map);
+
+    // 6. Search Functionality
+    function performSearch() {
+        const query = document.getElementById('search-input').value.trim().toLowerCase();
+        searchResults = [];
+        currentIndex = -1;
+        if (!query) return;
+
+        allLayers.forEach(obj => {
+            const match = Object.values(obj.layer.feature.properties).some(v => v && v.toString().toLowerCase().includes(query));
+            if (match) searchResults.push(obj);
+        });
+
+        if (searchResults.length > 0) {
+            document.getElementById('search-nav').style.display = 'flex';
+            cycleResults(1);
+        } else {
+            document.getElementById('search-nav').style.display = 'none';
+            document.getElementById('status-text').innerText = "No results found.";
+        }
+    }
+
+    function cycleResults(direction) {
+        if (searchResults.length === 0) return;
+        if (lastHighlighted) {
+            lastHighlighted.setStyle({ weight: 1.5, color: lastHighlighted.options.originalColor });
+        }
+
+        currentIndex = (currentIndex + direction + searchResults.length) % searchResults.length;
+        const targetObj = searchResults[currentIndex];
+        const targetLayer = targetObj.layer;
+
+        // Auto-show layer if hidden
+        if (!map.hasLayer(targetObj.group)) {
+            map.addLayer(targetObj.group);
+        }
+
+        if (!targetLayer.options.originalColor) targetLayer.options.originalColor = targetLayer.options.color;
+        
+        targetLayer.setStyle({ color: 'yellow', weight: 5 });
+        map.fitBounds(targetLayer.getBounds());
+        targetLayer.openPopup();
+
+        lastHighlighted = targetLayer;
+        document.getElementById('status-text').innerText = `Result ${currentIndex+1} of ${searchResults.length}`;
+    }
+</script>
+</body>
+</html>
