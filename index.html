@@ -134,7 +134,12 @@
                 pointToLayer: (f, ll) => L.circleMarker(ll, { radius: 4, fillColor: config.color, color: "#fff", weight: 1, fillOpacity: 0.8 }),
                 style: { color: config.color, weight: 1.5, fillOpacity: 0.2 },
                 onEachFeature: (feature, layer) => {
-                    allLayers.push({layer: layer, group: group});
+    // Add configName here so the search function can filter by it
+    allLayers.push({
+        layer: layer, 
+        group: group, 
+        configName: config.name // <--- Add this line
+    });
                     
                     const p = feature.properties;
                     // Multi-line labels including MOUZA
@@ -164,26 +169,43 @@
 
     L.control.layers(baseMaps, overlayMaps, { collapsed: false }).addTo(map);
 
-    // 6. Search Functionality
-    function performSearch() {
-        const query = document.getElementById('search-input').value.trim().toLowerCase();
-        searchResults = [];
-        currentIndex = -1;
-        if (!query) return;
-
-        allLayers.forEach(obj => {
-            const match = Object.values(obj.layer.feature.properties).some(v => v && v.toString().toLowerCase().includes(query));
-            if (match) searchResults.push(obj);
-        });
-
-        if (searchResults.length > 0) {
-            document.getElementById('search-nav').style.display = 'flex';
-            cycleResults(1);
-        } else {
-            document.getElementById('search-nav').style.display = 'none';
-            document.getElementById('status-text').innerText = "No results found.";
-        }
+    // 6. Search Functionality (RESTRICTED TO dg3.geojson)
+function performSearch() {
+    const query = document.getElementById('search-input').value.trim().toLowerCase();
+    searchResults = [];
+    currentIndex = -1;
+    
+    if (!query) {
+        document.getElementById('status-text').innerText = "Enter search term";
+        return;
     }
+
+    allLayers.forEach(obj => {
+        // ONLY search if the layer belongs to the 'Mouza Boundary' (dg3.geojson)
+        // We use the config name or the url to filter
+        if (obj.configName === 'Mouza Boundary') { 
+            const properties = obj.layer.feature.properties;
+            
+            // Optimization: Only search specific keys like MOUZA or BLOCK
+            // instead of Object.values() to further increase speed
+            const match = Object.values(properties).some(v => 
+                v && v.toString().toLowerCase().includes(query)
+            );
+
+            if (match) {
+                searchResults.push(obj);
+            }
+        }
+    });
+
+    if (searchResults.length > 0) {
+        document.getElementById('search-nav').style.display = 'flex';
+        cycleResults(1);
+    } else {
+        document.getElementById('search-nav').style.display = 'none';
+        document.getElementById('status-text').innerText = "No results found in Mouza Boundary.";
+    }
+}
 
     function cycleResults(direction) {
         if (searchResults.length === 0) return;
