@@ -38,7 +38,17 @@
             z-index: 2000; font-size: 11px; display: flex; align-items: center; justify-content: center; pointer-events: none;
         }
 
-        .qgis-label { background: white; border: 1px solid #777; padding: 2px 5px; font-size: 10px; font-weight: bold; }
+        /* Enhanced QGIS style label for multi-line support */
+        .qgis-label { 
+            background: white; 
+            border: 1px solid #777; 
+            padding: 4px 8px; 
+            font-size: 11px; 
+            line-height: 1.4;
+            color: #333;
+            font-weight: bold; 
+            box-shadow: 2px 2px 5px rgba(0,0,0,0.2);
+        }
     </style>
 </head>
 <body>
@@ -56,7 +66,7 @@
         <input type="text" id="search-input" placeholder="Enter Name...">
         <button class="action-btn" onclick="performSearch()">Find</button>
     </div>
-    <div id="status-text" style="font-size:11px; color:#777; margin-top:8px;">Different colors used for layers</div>
+    <div id="status-text" style="font-size:11px; color:#777; margin-top:8px;">Hover to see Dist/Block/Mouza</div>
     <div id="search-nav" style="display:none; justify-content: space-between; margin-top: 10px;">
         <button class="action-btn" onclick="cycleResults(-1)" style="background:#666; flex:1; margin-right:5px;">←</button>
         <button class="action-btn" onclick="cycleResults(1)" style="background:#666; flex:1;">→</button>
@@ -107,7 +117,7 @@
         L.popup().setLatLng(e.latlng).setContent(`<button onclick="window.open('${url}', '_blank')" style="padding:8px;">Open Soaratlas Here</button>`).openOn(map);
     });
 
-    // 3. Layer Configuration with Unique Colors and Icon markers
+    // 3. Layer Configuration
     const geojsonFiles = [
         { url: 'dg3.geojson', name: 'Mouza Boundary', color: '#007bff', pointColor: '#004a99' },
         { url: '2ALLWRIDD.geojson', name: 'WRIDD + WBADMIP I', color: '#ff7800', pointColor: '#cc6000' },
@@ -120,16 +130,8 @@
     let currentIndex = -1;
     let lastHighlighted = null;
 
-    // Helper to create different colored circle markers for points
     function getPointMarker(latlng, color) {
-        return L.circleMarker(latlng, {
-            radius: 7,
-            fillColor: color,
-            color: "#ffffff",
-            weight: 2,
-            opacity: 1,
-            fillOpacity: 0.8
-        });
+        return L.circleMarker(latlng, { radius: 7, fillColor: color, color: "#ffffff", weight: 2, opacity: 1, fillOpacity: 0.8 });
     }
 
     async function loadData(config) {
@@ -143,9 +145,29 @@
                 pointToLayer: (feature, latlng) => getPointMarker(latlng, config.pointColor),
                 onEachFeature: (feature, layer) => {
                     allLayers.push({ layer, group, configName: config.name });
-                    layer.bindTooltip(`<b>Mouza:</b> ${feature.properties.MOUZA || 'N/A'}`, { sticky: true, className: 'qgis-label' });
+                    
+                    const p = feature.properties;
+                    
+                    // --- UPDATED TOOLTIP LOGIC ---
+                    // Handles various naming conventions (Case sensitivity)
+                    const dist = p.DISTRICT || p.district || p.DIST || 'N/A';
+                    const block = p.BLOCK || p.block || 'N/A';
+                    const mouza = p.MOUZA || p.mouza || p.JL_NO || 'N/A';
+                    
+                    const labelContent = `
+                        <b>Dist:</b> ${dist}<br>
+                        <b>Block:</b> ${block}<br>
+                        <b>Mouza:</b> ${mouza}
+                    `;
+                    
+                    layer.bindTooltip(labelContent, { 
+                        sticky: true, 
+                        className: 'qgis-label',
+                        direction: 'auto'
+                    });
+                    
                     let popup = `<div style="font-size:11px; max-height: 200px; overflow-y: auto;"><b>Layer: ${config.name}</b><br><hr>`;
-                    for (let key in feature.properties) popup += `<b>${key}:</b> ${feature.properties[key]}<br>`;
+                    for (let key in p) popup += `<b>${key}:</b> ${p[key]}<br>`;
                     layer.bindPopup(popup + "</div>");
                 }
             }).addTo(group);
