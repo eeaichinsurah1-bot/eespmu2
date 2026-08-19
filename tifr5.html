@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web map by Dayamoy Ghosh (Multi-Year)</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.14.2/dist/leaflet-geoman.css" />
+    
+    <style>
+        body, html { margin: 0; padding: 0; height: 100%; width: 100%; font-family: Arial, sans-serif; }
+        #map { width: 100%; height: 100%; }
+        
+        .legend {
+            background: white; padding: 10px; line-height: 18px; color: #333;
+            border-radius: 5px; box-shadow: 0 0 15px rgba(0,0,0,0.2); font-size: 13px;
+        }
+        .legend i { width: 16px; height: 16px; float: left; margin-right: 8px; opacity: 0.9; border: 1px solid #ccc; }
+        .legend h4 { margin: 5px 0; font-size: 14px; }
+        
+        #search-container {
+            position: absolute; top: 10px; left: 55px; z-index: 1000;
+            background: white; border-radius: 5px;
+            box-shadow: 0 0 15px rgba(0,0,0,0.2); display: flex; flex-direction: column;
+            width: 320px; transition: all 0.3s ease-in-out; overflow: hidden;
+        }
+        
+        .panel-header {
+            background: #2c3e50; color: white; padding: 8px 12px; font-size: 12px;
+            font-weight: bold; display: flex; justify-content: space-between; align-items: center;
+            cursor: pointer; user-select: none;
+        }
+        .panel-header:hover { background: #34495e; }
+        .toggle-btn { background: #16a085; color: white; border: none; border-radius: 3px; font-weight: bold; width: 20px; height: 20px; line-height: 18px; text-align: center; font-size: 14px; }
+
+        #panel-body { padding: 12px; display: none; flex-direction: column; gap: 8px; }
+
+        .search-row { display: flex; gap: 6px; align-items: center; }
+        #search-container input[type="number"], 
+        #search-container input[type="text"] { flex: 1; padding: 5px; border: 1px solid #ccc; border-radius: 4px; font-size: 12px; min-width: 0; }
+        #search-container button { padding: 5px 10px; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold; white-space: nowrap; }
+        
+        .btn-go { background: #27ae60; }
+        .btn-go:hover { background: #219150; }
+        .btn-mouza { background: #2980b9; }
+        .btn-mouza:hover { background: #2471a3; }
+        .btn-export { background: #8e44ad; color: white; width: 100%; margin-top: 4px; }
+        .btn-export:hover { background: #7d3c98; }
+        .btn-clear { background: #e74c3c; color: white; width: 100%; }
+        .btn-clear:hover { background: #c0392b; }
+        
+        .file-upload-section { border-top: 1px dashed #ccc; padding-top: 8px; font-size: 12px; display: flex; flex-direction: column; gap: 6px; }
+        .file-upload-section label { font-weight: bold; color: #2c3e50; }
+        .file-upload-section input[type="file"] { font-size: 11px; }
+
+        #mouse-coords {
+            position: absolute; bottom: 10px; left: 10px; z-index: 1000;
+            background: rgba(255, 255, 255, 0.95); padding: 8px 12px; border-radius: 4px;
+            font-size: 12px; font-family: Arial, sans-serif; border: 1px solid #bbb; pointer-events: none;
+            box-shadow: 0 0 10px rgba(0,0,0,0.15); line-height: 1.4; max-width: 250px;
+        }
+        .hud-title { font-weight: bold; border-bottom: 1px solid #ccc; margin-bottom: 4px; padding-bottom: 2px; color: #2c3e50; }
+
+        #loading-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255, 255, 255, 0.85);
+            z-index: 9999; display: flex; flex-direction: column;
+            justify-content: center; align-items: center;
+            transition: opacity 0.3s ease-in-out;
+        }
+        .spinner {
+            width: 50px; height: 50px;
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #27ae60;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 15px;
+        }
+        #loading-text {
+            font-size: 16px; font-weight: bold; color: #2c3e50; text-align: center; line-height: 1.5;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .popup-card { font-size: 12px; max-width: 290px; max-height: 250px; overflow-y: auto; }
+        .popup-card header { font-weight: bold; font-size: 13px; border-bottom: 1px solid #2c3e50; padding-bottom: 4px; margin-bottom: 6px; }
+        .attribute-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+        .attribute-table td { padding: 3px 4px; border-bottom: 1px solid #f0f0f0; vertical-align: top; }
+        .attribute-table td.prop-name { font-weight: bold; color: #34495e; width: 45%; }
+
+        .measurement-popup { font-size: 12px; font-weight: bold; line-height: 1.5; color: #2c3e50; }
+        .streetview-link { display: inline-block; margin-top: 6px; padding: 4px 8px; background: #4285F4; color: white; text-decoration: none; border-radius: 3px; font-size: 11px; font-weight: bold; }
+        .streetview-link:hover { background: #3367D6; }
+    </style>
+</head>
+<body>
+
+    <div id="loading-overlay" style="display:none;">
+        <div class="spinner"></div>
+        <div id="loading-text">Loading Dataset...<br><span style="font-size:12px; color:#7f8c8d; font-weight:normal;">Rendering workspace. Please wait.</span></div>
+    </div>
+
+    <!-- Unified Sidebar Search Toolkit -->
+    <div id="search-container">
+        <div class="panel-header" onclick="toggleSearchPanel()">
+            <span>⚙️ Click to Expand: Dayamoy Ghosh</span>
+            <span class="toggle-btn" id="panel-toggle-symbol">+</span>
+        </div>
+        <div id="panel-body">
+            <!-- Lat Lng Plotter -->
+            <div class="search-row">
+                <input type="number" id="input-lat" placeholder="Latitude" step="any">
+                <input type="number" id="input-lng" placeholder="Longitude" step="any">
+                <button class="btn-go" onclick="plotCustomMarker()">Go</button>
+            </div>
+            <!-- Mouza Boundary Finder -->
+            <div class="search-row">
+                <input type="text" id="input-mouza" list="mouza-datalist" placeholder="Type Mouza Name...">
+                <datalist id="mouza-datalist"></datalist>
+                <button class="btn-mouza" onclick="searchMouza()">Find Mouza</button>
+            </div>
+            <!-- CSV Loader -->
+            <div class="file-upload-section">
+                <label for="csv-file-input">📁 Upload CSV Data (Multiple):</label>
+                <input type="file" id="csv-file-input" accept=".csv" multiple onchange="handleMultipleCSVUpload(event)">
+            </div>
+            <!-- GeoJSON & KML Loader -->
+            <div class="file-upload-section">
+                <label for="vector-file-input">🌐 Upload GeoJSON / KML Vector File:</label>
+                <input type="file" id="vector-file-input" accept=".json,.geojson,.kml" onchange="handleVectorUpload(event)">
+            </div>
+            <!-- Actions -->
+            <div style="display:flex; flex-direction:column; gap:6px; margin-top:4px;">
+                <button class="btn-export" onclick="exportDrawnToKML()">📥 Export Drawn Shapes to KML</button>
+                <button class="btn-clear" onclick="clearAllDrawnShapes()">🗑️ Clear All Drawn Shapes</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="mouse-coords">
+        <div class="hud-title">Map Coordinates</div>
+        Lat: 0.00000, Lng: 0.00000
+    </div>
+
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/georaster@1.6.0/dist/georaster.browser.bundle.min.js"></script>
+    <script src="https://unpkg.com/georaster-layer-for-leaflet/dist/georaster-layer-for-leaflet.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+    <script src="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.14.2/dist/leaflet-geoman.min.js"></script>
+    <script src="https://unpkg.com/@tmcw/togeojson@5.8.1/dist/togeojson.umd.js"></script>
+
+    <script>
+        function toggleSearchPanel() {
+            var body = document.getElementById('panel-body');
+            var btnSymbol = document.getElementById('panel-toggle-symbol');
+            if (body.style.display === 'flex') {
+                body.style.display = 'none';
+                btnSymbol.innerText = '+';
+            } else {
+                body.style.display = 'flex';
+                btnSymbol.innerText = '−';
+            }
+        }
+
+        var loader = document.getElementById('loading-overlay');
+        var loaderText = document.getElementById('loading-text');
+
+        function showLoader(message, submessage) {
+            loaderText.innerHTML = message + '<br><span style="font-size:12px; color:#7f8c8d; font-weight:normal;">' + submessage + '</span>';
+            loader.style.display = 'flex';
+            loader.style.opacity = '1';
+        }
+        function hideLoader() {
+            loader.style.opacity = '0';
+            setTimeout(function() { loader.style.display = 'none'; }, 300);
+        }
+
+        var savedLat = localStorage.getItem("mapLat");
+        var savedLng = localStorage.getItem("mapLng");
+        var savedZoom = localStorage.getItem("mapZoom");
+
+        var initialCenter = (savedLat && savedLng) ? [parseFloat(savedLat), parseFloat(savedLng)] : [23.5, 87.8];
+        var initialZoom = savedZoom ? parseInt(savedZoom) : 8;
+
+        var map = L.map('map').setView(initialCenter, initialZoom);
+        var searchMarker = null;
+        var geojsonFeaturesArray = []; 
+        var highlightedSearchLayer = null; 
+        var drawnItemsGroup = L.featureGroup().addTo(map);
+
+        // Geoman Toolbar Settings
+        map.pm.addControls({
+            position: 'topleft',
+            drawCircleMarker: false,
+            drawMarker: true,
+            drawPolyline: true,
+            drawRectangle: true,
+            drawPolygon: true,
+            drawCircle: true,
+            editMode: true,
+            dragMode: true,
+            cutPolygon: true,
+            removalMode: true
+        });
+
+        map.on('pm:create', function(e) {
+            var layer = e.layer;
+            var shape = e.shape;
+            drawnItemsGroup.addLayer(layer);
+
+            if (shape === 'Line' || shape === 'Polyline') {
+                var geojson = layer.toGeoJSON();
+                var lengthKm = turf.length(geojson, { units: 'kilometers' });
+                var lengthMeters = (lengthKm * 1000).toFixed(2);
+                layer.bindPopup('<div class="measurement-popup">📏 <b>Distance:</b> ' + lengthKm.toFixed(3) + ' km (' + lengthMeters + ' m)</div>').openPopup();
+            } 
+            else if (shape === 'Polygon' || shape === 'Rectangle' || shape === 'Circle') {
+                var geojson = layer.toGeoJSON();
+                var areaSqMeters = turf.area(geojson);
+                var areaHectares = (areaSqMeters / 10000).toFixed(3);
+                var areaAcres = (areaSqMeters * 0.000247105).toFixed(3);
+                var perimeterKm = turf.length(geojson, { units: 'kilometers' });
+
+                layer.bindPopup('<div class="measurement-popup">📐 <b>Area:</b> ' + areaHectares + ' Ha (' + areaAcres + ' Acres)<br><b>Perimeter:</b> ' + perimeterKm.toFixed(3) + ' km</div>').openPopup();
+            }
+        });
+
+        // Context Menu
+        map.on('contextmenu', function(e) {
+            var lat = e.latlng.lat.toFixed(5);
+            var lng = e.latlng.lng.toFixed(5);
+
+            var popupContent = '<div style="font-size:12px; min-width:180px;">' +
+                               '<b>📍 Location Details</b><br>' +
+                               '<b>Lat:</b> ' + lat + '<br><b>Lng:</b> ' + lng + '<br>' +
+                               '<span id="alt-val">⛰️ <i>Fetching altitude...</i></span><br>' +
+                               '<a href="https://www.google.com/maps?q=&layer=c&cbll=' + lat + ',' + lng + '" target="_blank" class="streetview-link">🌐 Open Google Street View</a>' +
+                               '</div>';
+
+            L.popup().setLatLng(e.latlng).setContent(popupContent).openOn(map);
+
+            fetch('https://api.open-meteo.com/v1/elevation?latitude=' + lat + '&longitude=' + lng)
+                .then(res => res.json())
+                .then(data => {
+                    var altElem = document.getElementById('alt-val');
+                    if (altElem && data.elevation !== undefined) {
+                        var meters = data.elevation[0];
+                        var feet = (meters * 3.28084).toFixed(1);
+                        altElem.innerHTML = '⛰️ <b>Altitude:</b> ' + meters + ' m (' + feet + ' ft)';
+                    }
+                })
+                .catch(() => {
+                    var altElem = document.getElementById('alt-val');
+                    if (altElem) altElem.innerHTML = '⛰️ <b>Altitude:</b> N/A';
+                });
+        });
+
+        var googleStreets = L.tileLayer('https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+            maxZoom: 20, subdomains: ['mt0', 'mt1', 'mt2', 'mt3'], attribution: '&copy; Google Maps'
+        }).addTo(map); 
+
+        var googleHybrid = L.tileLayer('https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+            maxZoom: 20, subdomains: ['mt0', 'mt1', 'mt2', 'mt3'], attribution: '&copy; Google Maps'
+        });
+
+        var baseMaps = { "Google Street Map": googleStreets, "Google Hybrid Satellite": googleHybrid };
+        var overlayMaps = {};
+        var layerControl = L.control.layers(baseMaps, overlayMaps, { collapsed: true }).addTo(map);
+
+        var tiffLayersConfig = [
+            { label: "Cropping Intensity (2017-18)", url: "West_Bengal_Cropping_Intensity_2017_18.tif" },
+            { label: "Cropping Intensity (2018-19)", url: "West_Bengal_Cropping_Intensity_2018_19.tif" },
+            { label: "Cropping Intensity (2019-20)", url: "West_Bengal_Cropping_Intensity_2019_20.tif" },
+            { label: "Cropping Intensity (2020-21)", url: "West_Bengal_Cropping_Intensity_2020_21.tif" },
+            { label: "Cropping Intensity (2021-22)", url: "West_Bengal_Cropping_Intensity_2021_22.tif" },
+            { label: "Cropping Intensity (2022-23)", url: "West_Bengal_Cropping_Intensity_2022_23.tif" },
+            { label: "Cropping Intensity (2023-24)", url: "West_Bengal_Cropping_Intensity_2023_24.tif" },
+            { label: "Cropping Intensity (2024-25)", url: "West_Bengal_Cropping_Intensity_2024_25.tif" },
+            { label: "Cropping Intensity (2025-26)", url: "West_Bengal_Cropping_Intensity_2025_26.tif" }
+        ];
+
+        // 1. Distinct Colors Configuration for Schemes & Mouza boundaries
+        var schemeJsonConfigs = [
+            { url: 'wridd.geojson', name: 'WRIDD + WBADMIP I Scheme', color: '#E74C3C' },      // Red-Orange
+            { url: 'WBADMIPII.geojson', name: 'WBADMIP PH-II Scheme', color: '#16A085' },     // Teal
+            { url: 'dg4.geojson', name: 'WBADMIP Proposed Scheme', color: '#2980B9' },        // Blue
+            { url: 'mouzabound.geojson', name: 'Mouza Boundaries 1', color: '#8E44AD', isMouza: true }, // Purple
+            { url: 'mouzabound2.geojson', name: 'Mouza Boundaries 2', color: '#D35400', isMouza: true }  // Ochre / Rust
+        ];
+
+        // Palettes for User Uploaded Files
+        var uploadColorPalettes = [
+            '#e84393', '#0984e3', '#00b894', '#6c5ce7', '#d63031', 
+            '#fdcb6e', '#00cec9', '#e17055', '#2d3436', '#ff7675'
+        ];
+        var uploadedLayersCount = 0;
+
+        function getPixelColor(values, noDataValue) {
+            var value = Array.isArray(values) ? values[0] : values;
+            if (value === 0 || isNaN(value) || value === noDataValue) return 'transparent';
+            if (value === 1) return '#f1c40f'; 
+            if (value === 2) return '#27ae60'; 
+            if (value === 3) return '#1e4620'; 
+            return 'transparent';
+        }
+
+        var hoverGeoJsonStyle = { color: "#e74c3c", weight: 3, opacity: 1.0, fillColor: "#e74c3c", fillOpacity: 0.35 };
+        var coordsDisplay = document.getElementById('mouse-coords');
+        var datalistElement = document.getElementById('mouza-datalist');
+
+        function onEachMouzaFeature(feature, layer, baseColor) {
+            var props = feature.properties;
+            var uniqueLabel = props.MOUZA + " (Block: " + (props.BLOCK || "N/A") + ", Dist: " + (props.district || "N/A") + ")";
+            
+            geojsonFeaturesArray.push({ 
+                feature: feature, layer: layer, uniqueLabel: uniqueLabel,
+                mouzaCleanName: props.MOUZA ? props.MOUZA.trim().toLowerCase() : "",
+                baseColor: baseColor
+            });
+
+            var option = document.createElement('option');
+            option.value = uniqueLabel; 
+            datalistElement.appendChild(option);
+
+            layer.on({
+                mousemove: function(e) {
+                    var currentLat = e.latlng.lat.toFixed(5);
+                    var currentLng = e.latlng.lng.toFixed(5);
+                    if (layer !== highlightedSearchLayer) { layer.setStyle(hoverGeoJsonStyle); }
+                    coordsDisplay.innerHTML = '<div class="hud-title">Mouza Attributes</div>' +
+                        '<b>District:</b> ' + (props.district || 'N/A') + '<br>' +
+                        '<b>Block:</b> ' + (props.BLOCK || 'N/A') + '<br>' +
+                        '<b>Mouza:</b> ' + (props.MOUZA || 'N/A') + '<br>' +
+                        '<b>Area (MA):</b> ' + (props.MA || '0') + ' Ha<br>' +
+                        '<span style="font-family:monospace; font-size:11px; color:#7f8c8d;">Lat: ' + currentLat + ', Lng: ' + currentLng + '</span>';
+                },
+                mouseout: function(e) {
+                    if (layer !== highlightedSearchLayer) { 
+                        layer.setStyle({ color: baseColor, weight: 2, opacity: 0.8, fillColor: baseColor, fillOpacity: 0.15 }); 
+                    }
+                    var currentLat = e.latlng ? e.latlng.lat.toFixed(5) : "0.00000";
+                    var currentLng = e.latlng ? e.latlng.lng.toFixed(5) : "0.00000";
+                    coordsDisplay.innerHTML = '<div class="hud-title">Map Coordinates</div>Lat: ' + currentLat + ', Lng: ' + currentLng;
+                }
+            });
+        }
+
+        function fetchAndRenderTiff(config, existingLayerGroup) {
+            fetch(config.url)
+                .then(response => { if (!response.ok) throw new Error(); return response.arrayBuffer(); })
+                .then(arrayBuffer => {
+                    parseGeoraster(arrayBuffer).then(georaster => {
+                        var geoRasterLayer = new GeoRasterLayer({
+                            georaster: georaster, opacity: 0.8, resolution: 64,
+                            pixelValuesToColorFn: values => getPixelColor(values, georaster.noDataValue)
+                        });
+
+                        existingLayerGroup.addLayer(geoRasterLayer);
+                        existingLayerGroup._isLoaded = true;
+                        hideLoader();
+                    });
+                })
+                .catch(() => {
+                    hideLoader();
+                    alert("Could not load GeoTIFF: " + config.label);
+                });
+        }
+
+        tiffLayersConfig.forEach(function(config) {
+            var lazyGroup = L.layerGroup();
+            lazyGroup._tiffConfig = config;
+            lazyGroup._isLoaded = false;
+            layerControl.addOverlay(lazyGroup, config.label);
+        });
+
+        schemeJsonConfigs.forEach(function(cfg) {
+            var lazyJsonGroup = L.layerGroup();
+            lazyJsonGroup._jsonConfig = cfg;
+            lazyJsonGroup._isLoaded = false;
+            
+            var labelHtml = '<span style="color:' + cfg.color + '; font-weight:bold;">●</span> ' + cfg.name;
+            layerControl.addOverlay(lazyJsonGroup, labelHtml);
+        });
+
+        map.on('overlayadd', function(e) {
+            if (e.layer._tiffConfig && !e.layer._isLoaded) {
+                showLoader("Loading " + e.name, "Fetching raster dataset...");
+                fetchAndRenderTiff(e.layer._tiffConfig, e.layer);
+            } 
+            else if (e.layer._jsonConfig && !e.layer._isLoaded) {
+                showLoader("Loading " + e.name, "Fetching vector dataset...");
+                fetchAndRenderGeoJson(e.layer._jsonConfig, e.layer);
+            } 
+        });
+
+        function fetchAndRenderGeoJson(config, targetGroup) {
+            fetch(config.url)
+                .then(res => { if (!res.ok) throw new Error(); return res.json(); })
+                .then(data => {
+                    var loadedLayer;
+                    if (config.isMouza) {
+                        loadedLayer = L.geoJSON(data, {
+                            style: { color: config.color, weight: 2, opacity: 0.8, fillColor: config.color, fillOpacity: 0.15 },
+                            onEachFeature: function(feature, layer) {
+                                onEachMouzaFeature(feature, layer, config.color);
+                            }
+                        });
+                    } else {
+                        loadedLayer = L.geoJSON(data, {
+                            pointToLayer: function (feature, latlng) {
+                                return L.circleMarker(latlng, { radius: 7, fillColor: config.color, color: "#ffffff", weight: 2, opacity: 1, fillOpacity: 0.9 });
+                            },
+                            style: function() { return { color: config.color, weight: 3, opacity: 0.8 }; },
+                            onEachFeature: function (feature, layer) {
+                                var props = feature.properties || {};
+                                var schemeTitle = props.name_of_scheme || props.name_of_wua || props.Name_of_Scheme || config.name;
+                                var popupHtml = '<div class="popup-card"><header style="color:' + config.color + ';">' + schemeTitle + '</header><table class="attribute-table">';
+                                Object.keys(props).forEach(key => {
+                                    var val = props[key];
+                                    if (val !== null && val !== undefined && val !== "NULL") {
+                                        popupHtml += '<tr><td class="prop-name">' + key.replace(/_/g, " ") + ':</td><td>' + val + '</td></tr>';
+                                    }
+                                });
+                                popupHtml += '</table></div>';
+                                layer.bindPopup(popupHtml);
+                            }
+                        });
+                    }
+                    targetGroup.addLayer(loadedLayer);
+                    targetGroup._isLoaded = true;
+                    hideLoader();
+                })
+                .catch(() => {
+                    hideLoader();
+                    alert("Could not load " + config.name);
+                });
+        }
+
+        // Vector Import (GeoJSON + KML parsing) with unique distinct colors
+        function handleVectorUpload(event) {
+            var file = event.target.files[0];
+            if (!file) return;
+
+            var assignedColor = uploadColorPalettes[uploadedLayersCount % uploadColorPalettes.length];
+            uploadedLayersCount++;
+
+            var reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    var geojsonData;
+                    if (file.name.toLowerCase().endsWith('.kml')) {
+                        var parser = new DOMParser();
+                        var kmlDom = parser.parseFromString(e.target.result, 'text/xml');
+                        geojsonData = toGeoJSON.kml(kmlDom);
+                    } else {
+                        geojsonData = JSON.parse(e.target.result);
+                    }
+
+                    var vectorGroup = L.geoJSON(geojsonData, {
+                        pointToLayer: function (feature, latlng) {
+                            return L.circleMarker(latlng, { radius: 8, fillColor: assignedColor, color: "#ffffff", weight: 2, opacity: 1, fillOpacity: 0.9 });
+                        },
+                        style: function() {
+                            return { color: assignedColor, weight: 3, opacity: 0.85, fillColor: assignedColor, fillOpacity: 0.25 };
+                        },
+                        onEachFeature: function (feature, layer) {
+                            var props = feature.properties || {};
+                            var popupHtml = '<div class="popup-card"><header style="color:' + assignedColor + ';">' + (props.name || 'Vector Feature') + '</header><table class="attribute-table">';
+                            Object.keys(props).forEach(k => { 
+                                if (props[k]) popupHtml += '<tr><td class="prop-name">' + k + ':</td><td>' + props[k] + '</td></tr>'; 
+                            });
+                            popupHtml += '</table></div>';
+                            layer.bindPopup(popupHtml);
+                        }
+                    }).addTo(map);
+
+                    layerControl.addOverlay(vectorGroup, '<span style="color:' + assignedColor + '; font-weight:bold;">●</span> Uploaded: ' + file.name);
+                    var bounds = vectorGroup.getBounds();
+                    if (bounds.isValid()) { map.fitBounds(bounds, { padding: [30, 30] }); }
+                    alert(file.name + " uploaded successfully.");
+                } catch(err) {
+                    alert("Error reading vector file: " + err.message);
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        // 2. CSV Auto Latitude & Longitude Column Detector & Plotter
+        function detectCoordinateKeys(rowObj) {
+            var keys = Object.keys(rowObj);
+            
+            var latPatterns = [/^(lat|latitude|y|northing|lat_dd|point_y)$/i, /lat/i, /northing/i];
+            var lngPatterns = [/^(lon|lng|long|longitude|x|easting|long_dd|point_x)$/i, /lon/i, /lng/i, /easting/i];
+
+            var latKey = null;
+            var lngKey = null;
+
+            for (let pattern of latPatterns) {
+                latKey = keys.find(k => pattern.test(k.trim()));
+                if (latKey) break;
+            }
+
+            for (let pattern of lngPatterns) {
+                lngKey = keys.find(k => pattern.test(k.trim()));
+                if (lngKey) break;
+            }
+
+            return { latKey: latKey, lngKey: lngKey };
+        }
+
+        function handleMultipleCSVUpload(event) {
+            var files = event.target.files;
+            if (!files || files.length === 0) return;
+            var allBounds = [];
+
+            Array.from(files).forEach((file) => {
+                var layerColor = uploadColorPalettes[uploadedLayersCount % uploadColorPalettes.length];
+                uploadedLayersCount++;
+
+                Papa.parse(file, {
+                    header: true, 
+                    skipEmptyLines: true,
+                    dynamicTyping: true,
+                    complete: function(results) {
+                        var bounds = processAndAddCSVLayer(results.data, file.name, layerColor);
+                        if (bounds && bounds.length > 0) { allBounds = allBounds.concat(bounds); }
+                        if (allBounds.length > 0) { map.fitBounds(allBounds, { padding: [30, 30] }); }
+                    }
+                });
+            });
+        }
+
+        function processAndAddCSVLayer(data, fileName, layerColor) {
+            if (!data || data.length === 0) return [];
+            
+            var coords = detectCoordinateKeys(data[0]);
+            if (!coords.latKey || !coords.lngKey) {
+                alert("Could not automatically detect Latitude and Longitude columns in: " + fileName);
+                return [];
+            }
+
+            var fileLayerGroup = L.layerGroup().addTo(map);
+            var boundsGroup = [];
+
+            data.forEach((row, index) => {
+                var lat = parseFloat(row[coords.latKey]);
+                var lng = parseFloat(row[coords.lngKey]);
+
+                if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+                    var popupHtml = '<div class="popup-card"><header style="color:' + layerColor + ';">' + (row.Name || row.name || 'Point #' + (index + 1)) + '</header><table class="attribute-table">';
+                    Object.keys(row).forEach(col => { 
+                        if (row[col] !== null && row[col] !== undefined && row[col] !== '') {
+                            popupHtml += '<tr><td class="prop-name">' + col + ':</td><td>' + row[col] + '</td></tr>'; 
+                        }
+                    });
+                    popupHtml += '</table></div>';
+
+                    var marker = L.circleMarker([lat, lng], { 
+                        radius: 7, 
+                        fillColor: layerColor, 
+                        color: "#ffffff", 
+                        weight: 1.5, 
+                        opacity: 1, 
+                        fillOpacity: 0.9 
+                    }).bindPopup(popupHtml);
+
+                    fileLayerGroup.addLayer(marker);
+                    boundsGroup.push([lat, lng]);
+                }
+            });
+
+            layerControl.addOverlay(fileLayerGroup, '<span style="color:' + layerColor + '; font-weight:bold;">●</span> ' + fileName);
+            return boundsGroup;
+        }
+
+        function exportDrawnToKML() {
+            if (!drawnItemsGroup || drawnItemsGroup.getLayers().length === 0) {
+                alert("No custom lines, polygons, or markers drawn on the map to export.");
+                return;
+            }
+
+            try {
+                var layers = drawnItemsGroup.getLayers();
+                var kmlPlacemarks = "";
+
+                layers.forEach(function(layer, index) {
+                    var name = "Drawn Feature #" + (index + 1);
+                    var description = "Exported from Web Map Engine";
+
+                    if (layer instanceof L.Marker || layer instanceof L.CircleMarker) {
+                        var latlng = layer.getLatLng();
+                        kmlPlacemarks += 
+                            '  <Placemark>\n' +
+                            '    <name>' + name + '</name>\n' +
+                            '    <description>' + description + '</description>\n' +
+                            '    <Point>\n' +
+                            '      <coordinates>' + latlng.lng + ',' + latlng.lat + ',0</coordinates>\n' +
+                            '    </Point>\n' +
+                            '  </Placemark>\n';
+                    }
+                    else if (layer instanceof L.Polygon) {
+                        var latlngs = layer.getLatLngs()[0];
+                        var coordStr = latlngs.map(function(ll) { return ll.lng + ',' + ll.lat + ',0'; }).join(' ');
+                        if (latlngs.length > 0 && (latlngs[0].lat !== latlngs[latlngs.length - 1].lat || latlngs[0].lng !== latlngs[latlngs.length - 1].lng)) {
+                            coordStr += ' ' + latlngs[0].lng + ',' + latlngs[0].lat + ',0';
+                        }
+                        kmlPlacemarks += 
+                            '  <Placemark>\n' +
+                            '    <name>' + name + '</name>\n' +
+                            '    <description>' + description + '</description>\n' +
+                            '    <Polygon>\n' +
+                            '      <outerBoundaryIs>\n' +
+                            '        <LinearRing>\n' +
+                            '          <coordinates>' + coordStr + '</coordinates>\n' +
+                            '        </LinearRing>\n' +
+                            '      </outerBoundaryIs>\n' +
+                            '    </Polygon>\n' +
+                            '  </Placemark>\n';
+                    }
+                    else if (layer instanceof L.Polyline) {
+                        var latlngs = layer.getLatLngs();
+                        var coordStr = latlngs.map(function(ll) { return ll.lng + ',' + ll.lat + ',0'; }).join(' ');
+                        kmlPlacemarks += 
+                            '  <Placemark>\n' +
+                            '    <name>' + name + '</name>\n' +
+                            '    <description>' + description + '</description>\n' +
+                            '    <LineString>\n' +
+                            '      <coordinates>' + coordStr + '</coordinates>\n' +
+                            '    </LineString>\n' +
+                            '  </Placemark>\n';
+                    }
+                });
+
+                var kmlDocument = 
+                    '<?xml version="1.0" encoding="UTF-8"?>\n' +
+                    '<kml xmlns="http://www.opengis.net/kml/2.2">\n' +
+                    '<Document>\n' +
+                    '  <name>Map_Drawings</name>\n' +
+                    kmlPlacemarks +
+                    '</Document>\n' +
+                    '</kml>';
+
+                var blob = new Blob([kmlDocument], { type: 'application/vnd.google-earth.kml+xml' });
+                var downloadUrl = URL.createObjectURL(blob);
+                var downloadLink = document.createElement('a');
+                downloadLink.href = downloadUrl;
+                downloadLink.download = 'map_drawings_' + new Date().toISOString().slice(0, 10) + '.kml';
+                document.body.appendChild(downloadLink);
+                downloadLink.click();
+                document.body.removeChild(downloadLink);
+                URL.revokeObjectURL(downloadUrl);
+
+            } catch (err) {
+                alert("Export failed: " + err.message);
+            }
+        }
+
+        function clearAllDrawnShapes() {
+            if (drawnItemsGroup.getLayers().length === 0) {
+                alert("No shapes to clear.");
+                return;
+            }
+            if (confirm("Are you sure you want to delete all drawn measurements and shapes?")) {
+                drawnItemsGroup.clearLayers();
+            }
+        }
+
+        function searchMouza() {
+            var inputVal = document.getElementById('input-mouza').value.trim();
+            if (!inputVal) return;
+
+            if (geojsonFeaturesArray.length === 0) {
+                alert("Mouza boundaries are not loaded yet. Please check 'Mouza Boundaries 1' or '2' in the top-right layer menu first.");
+                return;
+            }
+
+            if (highlightedSearchLayer) { 
+                var orig = geojsonFeaturesArray.find(item => item.layer === highlightedSearchLayer);
+                var col = orig ? orig.baseColor : "#3498db";
+                highlightedSearchLayer.setStyle({ color: col, weight: 2, opacity: 0.8, fillColor: col, fillOpacity: 0.15 }); 
+                highlightedSearchLayer = null; 
+            }
+
+            var searchLower = inputVal.toLowerCase();
+            var match = geojsonFeaturesArray.find(item => item.uniqueLabel.toLowerCase() === searchLower);
+
+            if (!match) {
+                var occurrences = geojsonFeaturesArray.filter(item => item.mouzaCleanName === searchLower);
+                if (occurrences.length === 1) { match = occurrences[0]; }
+                else if (occurrences.length > 1) {
+                    alert("Multiple Mouzas found!\n\nPlease select explicitly from dropdown:\n\n" + occurrences.map(o => " • " + o.uniqueLabel).join("\n"));
+                    return;
+                }
+            }
+
+            if (match) {
+                highlightedSearchLayer = match.layer;
+                match.layer.setStyle({ color: "#d35400", weight: 4, opacity: 1.0, fillColor: "#e67e22", fillOpacity: 0.4 });
+                map.fitBounds(match.layer.getBounds(), { maxZoom: 14 });
+            }
+        }
+
+        function plotCustomMarker() {
+            var lat = parseFloat(document.getElementById('input-lat').value);
+            var lng = parseFloat(document.getElementById('input-lng').value);
+            if (isNaN(lat) || isNaN(lng)) return;
+
+            if (searchMarker) { map.removeLayer(searchMarker); }
+            searchMarker = L.marker([lat, lng]).addTo(map).bindPopup("<b>Target Marker</b><br>Lat: " + lat + "<br>Lng: " + lng).openPopup();
+            map.setView([lat, lng], 13);
+        }
+
+        map.on('mousemove', function(e) {
+            if (coordsDisplay.innerHTML.includes("Map Coordinates")) {
+                coordsDisplay.innerHTML = '<div class="hud-title">Map Coordinates</div>Lat: ' + e.latlng.lat.toFixed(5) + ', Lng: ' + e.latlng.lng.toFixed(5);
+            }
+        });
+
+        var legend = L.control({position: 'bottomright'});
+        legend.onAdd = function (map) {
+            var div = L.DomUtil.create('div', 'legend');
+            div.innerHTML = '<h4>Cropping Intensity</h4>' +
+                            '<i style="background: #f1c40f"></i> Single Crop<br>' +
+                            '<i style="background: #27ae60"></i> Double Crop<br>' +
+                            '<i style="background: #1e4620"></i> Triple Crop';
+            return div;
+        };
+        legend.addTo(map);
+    </script>
+</body>
+</html>
